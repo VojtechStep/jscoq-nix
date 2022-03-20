@@ -152,7 +152,7 @@
                     in
                     # fixupStubs needs to happen before nixSupportPhase
                     nixpkgs.lib.optional (!builtins.elem "fixupStubs" prevPF) "fixupStubs"
-                    ++ prevPF;
+                      ++ prevPF;
                   fixupStubs = ''
                     mkdir -p $OCAMLFIND_DESTDIR/stublibs
                     mv $OCAMLFIND_DESTDIR/$OPAM_PACKAGE_NAME/dll*.so $OCAMLFIND_DESTDIR/stublibs/
@@ -230,8 +230,8 @@
                 prevPF = jsc.preFixupPhases or [ ];
               in
               prevPF ++
-              # addCoqSetup needs to happen after nixSupportPhase
-              nixpkgs.lib.optional (!builtins.elem "addCoqSetup" prevPF) "addCoqSetup";
+                # addCoqSetup needs to happen after nixSupportPhase
+                nixpkgs.lib.optional (!builtins.elem "addCoqSetup" prevPF) "addCoqSetup";
 
             # Discover other coq packages
             addCoqSetup = ''
@@ -248,7 +248,26 @@
         {
           packages = {
             inherit jscoq;
-          };
+          } // (
+            let
+              basic-example = ((import ./examples/basic/flake.nix).outputs {
+                inherit nixpkgs flake-utils;
+                self = basic-example;
+                jscoq-nix = self;
+              });
+            in
+            {
+              basic-example = basic-example.defaultPackage."${system}";
+            }
+          );
+
+          defaultPackage = self.packages."${system}".jscoq;
         }
-      );
+      ) // {
+      templates.basic = {
+        description = "Multi-file pre-compiled project";
+        path = ./examples/basic;
+      };
+      defaultTemplate = self.templates.basic;
+    };
 }

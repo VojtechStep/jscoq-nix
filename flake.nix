@@ -2,7 +2,7 @@
   description = "jsCoq";
 
   inputs = {
-    nixpkgs.url = "nixpkgs/release-21.11";
+    nixpkgs.url = "nixpkgs/nixos-21.11";
     flake-utils.url = "github:numtide/flake-utils";
     opam-nix = {
       url = "github:tweag/opam-nix";
@@ -26,23 +26,39 @@
     let
       npmlock2nix' = npmlock2nix;
       opam-nix' = opam-nix;
+      # TODO: support darwin?
+      system-32bit = system: "i686-linux";
     in
     with flake-utils.lib; eachSystem [
-      # system.x86_64-linux
+      system.x86_64-linux
       system.i686-linux
     ]
       (
         system:
         let
+          # Although the binary can be run on 64bit systems,
+          # Coq and OCaml dependencies need to be built for 32bit,
+          # since the JavaScript environment does not have 64bit integers
+          system32 = system-32bit system;
           pkgs = nixpkgs.legacyPackages."${system}";
-          # ocamlPackages = pkgs32.ocaml-ng.ocamlPackages_4_12;
+          pkgs32 = nixpkgs.legacyPackages."${system32}";
+
+          # Node things can be native
           npmlock2nix = import npmlock2nix' {
             inherit pkgs;
           };
+
+          # The bootstrap packages can still be native
+          # the 32bit-ness is introduced when building the project
           opam-nix = opam-nix'.lib."${system}";
+
+          # Version specifications
           jscoqRev = "20b51aa7e7172e1a6c5e2c2834a5e40ea7250e77";
           jscoqVersion = "0.14";
+          coqVersion = "8.14";
+
           # Fetch npm package description separately, to prevent a circular dependency
+          # Fetching and file manipulation can be native
           pckJson = pkgs.fetchurl
             {
               url = "https://raw.githubusercontent.com/jscoq/jscoq/${jscoqRev}/package.json";
@@ -63,7 +79,7 @@
             '';
           };
           prod-src = pkgs.stdenvNoCC.mkDerivation {
-            pname = "jscoq-node_modules-base-dev";
+            pname = "jscoq-node_modules-base-prod";
             version = jscoqVersion;
             phases = [ "installPhase" ];
             installPhase = ''
@@ -78,18 +94,20 @@
           node_modules-production = npmlock2nix.node_modules {
             src = prod-src;
           };
+
           coqSource = pkgs.fetchFromGitHub {
             name = "coq-source";
             owner = "coq";
             repo = "coq";
-            rev = "V8.14.1";
+            rev = "v${coqVersion}";
             sha256 = "sha256-IvEs1YuabQmavYkvARoRx876y0Y+8e7KF9P6G9ZtxB0=";
 
+            # when fetchFromGitHub uses fetchzip, it expects extraPostFetch instead of postFetch
+            # https://github.com/NixOS/nixpkgs/issues/158629
             extraPostFetch =
               let
-                inherit (nixpkgs) lib;
                 # Fetch the patches separately, to avoid a circular dependency between jsCoqSource and coqSource
-                patches = lib.pipe [
+                patches = nixpkgs.lib.pipe [
                   { name = "trampoline"; sha256 = "sha256-ij+icsVejkBi7m+oiVkrGzq7Vd64/ltVxc4VRzBc7tU="; }
                   { name = "fold"; sha256 = "sha256-hX5WoknoZvVZzqMqAXa86aLIWwMm80zcR9FM8AvClks="; }
                   { name = "timeout"; sha256 = "sha256-eQWEZLdOaF+7I5qRHV79LQbL52KuGngehZfc2b8gokw="; }
@@ -105,7 +123,7 @@
                 for p in ${patches}; do patch -d $out -p1 < $p; done
               '';
           };
-          addonsPath = "_vendor+v8.14+32bit";
+          addonsPath = "_vendor+v${coqVersion}+32bit";
           coqLocalPath = addonsPath + "/coq";
           jscoqSource = pkgs.fetchFromGitHub {
             name = "jscoq-source";
@@ -147,13 +165,15 @@
                 zarith = move-sitelib super.zarith;
               })
           ]
-            (opam-nix.buildOpamProject' { inherit pkgs; }
+            # Build with 32bit packages
+            (opam-nix.buildOpamProject' { pkgs = pkgs32; }
               jscoqSource
               { });
 
           jscoq = opamScope.jscoq.overrideAttrs (jsc: {
             version = jscoqVersion;
 
+            # used for building, includes dev dependencies
             NODE_MODULES = "${node_modules}/node_modules";
             COQBUILDDIR_REL = coqLocalPath;
 
@@ -178,17 +198,17 @@
               popd
             '';
 
+            # For running =cli.js build= on Coq sources
             nativeBuildInputs = (jsc.nativeBuildInputs or [ ]) ++ [ node_modules.nodejs ];
+            # For running =jscoq= in the target environment
             propagatedBuildInputs = (jsc.propagatedBuildInputs or [ ]) ++ [ node_modules.nodejs ];
+
             buildPhase = ''
               runHook preBuild
               dune build @jscoq
               patchShebangs _build/default/dist/cli.js
               dune build -p coq,coq-core,coq-stdlib
               runHook postBuild
-            '';
-
-            postFixup = ''
             '';
 
             installPhase = ''
@@ -203,11 +223,31 @@
               ln -sfT ${node_modules-production}/node_modules $out/jscoq/node_modules
               runHook postInstall
             '';
+
+            # We can't use setupHook, because opam-nix writes to $out/nix-support/setup-hook directly
+            preFixupPhases =
+              let
+                prevPF = jsc.preFixupPhases or [ ];
+              in
+              prevPF ++
+              # addCoqSetup needs to happen after nixSupportPhase
+              nixpkgs.lib.optional (!builtins.elem "addCoqSetup" prevPF) "addCoqSetup";
+
+            # Discover other coq packages
+            addCoqSetup = ''
+              cat >>"$out/nix-support/setup-hook" <<EOL
+              addCoqPath () {
+                addToSearchPath COQPATH "\$1/lib/coq/${coqVersion}/user-contrib/"
+              }
+
+              addEnvHooks "\$targetOffset" addCoqPath
+              EOL
+            '';
           });
         in
         {
           packages = {
-            inherit jscoq dev-src prod-src;
+            inherit jscoq;
           };
         }
       );

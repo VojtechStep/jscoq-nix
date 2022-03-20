@@ -13,6 +13,8 @@
       inputs.flake-utils.follows = "flake-utils";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-compat.follows = "flake-compat";
+      # FIXME: throws "cannot find flake 'flake:opam2json'", not sure why
+      # inputs.opam2json.inputs.nixpkgs.follows = "nixpkgs";
     };
     npmlock2nix = {
       flake = false;

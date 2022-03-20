@@ -4,10 +4,15 @@
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-21.11";
     flake-utils.url = "github:numtide/flake-utils";
+    flake-compat = {
+      url = "github:edolstra/flake-compat";
+      flake = false;
+    };
     opam-nix = {
       url = "github:tweag/opam-nix";
       inputs.flake-utils.follows = "flake-utils";
       inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-compat.follows = "flake-compat";
     };
     npmlock2nix = {
       flake = false;
@@ -22,7 +27,7 @@
   #    are consistent
   # 4) patches dune recipes to use the pre-fetched node_modules
   # 5) runs a dune build
-  outputs = { self, nixpkgs, flake-utils, npmlock2nix, opam-nix }:
+  outputs = { self, nixpkgs, flake-utils, npmlock2nix, opam-nix, ... }:
     let
       npmlock2nix' = npmlock2nix;
       opam-nix' = opam-nix;

@@ -31,3 +31,6 @@ $(BUILDDIR):
 
 clean:
 	rm -rf $(BUILDDIR)
+
+serve: all
+	miniserve --index index.html $(BUILDDIR)/html

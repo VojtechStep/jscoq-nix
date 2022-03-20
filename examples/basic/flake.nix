@@ -35,6 +35,17 @@
               runHook postInstall
             '';
           };
+
+          devShell =
+            let
+              defaultPackage = self.defaultPackage."${system}";
+            in
+            pkgs.mkShell {
+              name = "jscoq-basic-shell";
+              inherit (defaultPackage) JSCOQDIR;
+              inputsFrom = [ defaultPackage ];
+              nativeBuildInputs = [ pkgs.miniserve ];
+            };
         }
       );
 }

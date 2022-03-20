@@ -1,0 +1,39 @@
+--- /nix/store/24dy1y31ipsybqsi96yr8zr5rmm1bkr5-jscoq-source/dune	1970-01-01 01:00:01.000000000 +0100
++++ ./dune	2022-03-19 21:04:53.843619700 +0100
+@@ -13,13 +13,6 @@
+    (run node %{dep:dist}/cli.js %{dep:coq-jslib/metadata/coq-pkgs.json}
+              --rootdir %{env:COQBUILDDIR_REL=????} --nostdlib))))
+ 
+-(rule
+- (targets node_modules)
+- (deps
+-   package.json
+-   package-lock.json)
+- (action (run npm install)))
+-
+ (alias
+  (name jscoq)
+  (deps
+@@ -30,7 +23,6 @@
+    (source_tree examples)
+    index.html
+    coq-pkgs
+-   node_modules
+    coq-js/jscoq_worker.js
+    dist
+    jscoq.install))
+@@ -43,10 +35,11 @@
+   (source_tree coq-jslib)
+   (source_tree ui-js)
+   webpack.config.js
+-  tsconfig.json
+-  node_modules)
++  tsconfig.json)
+  (action
+-  (run npm run build)))
++  (progn
++    (run ln -sfT %{env:NODE_MODULES=???} ./node_modules)
++    (run npm run build))))
+ 
+ ; Just the worker
+ (alias

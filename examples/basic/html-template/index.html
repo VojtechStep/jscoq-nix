@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script type="text/javascript" src="/js/ui-js/jscoq-loader.js"></script>
+  </head>
+
+  <body class="jscoq-main">
+    <div id="ide-wrapper" class="toggled">
+      <textarea id="coq-code">
+From Basic Require Export Module2.
+Print negb_works.
+      </textarea>
+    </div>
+
+    <script type="text/javascript">
+     JsCoq.start('/js/', '/js/node_modules', ['coq-code'], {
+         base_path: '/js/',
+         // prelude: false,
+         // init_pkgs: [],
+         all_pkgs: {'/coq-pkgs': ['Basic'], '/js/coq-pkgs': ['coq']}
+     });
+    </script>
+  </body>
+</html>

@@ -44,11 +44,11 @@
         "opam-nix": "opam-nix"
       },
       "locked": {
-        "lastModified": 1647822649,
-        "narHash": "sha256-Rm12M6xi8Oz2RFtcm6gLvyG2xcCastEZH2iEBFiWIcY=",
+        "lastModified": 1647886399,
+        "narHash": "sha256-s8nEt21gJMg9TKnaLVsLCi35+YLMDZ7xYbfct6YOOm8=",
         "owner": "VojtechStep",
         "repo": "jscoq-nix",
-        "rev": "f020bb5417780fddb10ea7636b6536cbf7fde5e4",
+        "rev": "84c1b3dc634ae18a7060719139faf26e49fe07fd",
         "type": "github"
       },
       "original": {

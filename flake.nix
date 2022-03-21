@@ -1,5 +1,5 @@
 {
-  description = "jsCoq";
+  description = "Nix infrastructure for using jsCoq with Coq to precompile your addons and integrate them into your webpage";
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-21.11";

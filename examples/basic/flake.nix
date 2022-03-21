@@ -3,8 +3,12 @@
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-21.11";
-    jscoq-nix.url = "github:VojtechStep/jscoq-nix";
     flake-utils.url = "github:numtide/flake-utils";
+    jscoq-nix = {
+      url = "github:VojtechStep/jscoq-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
   };
 
   outputs = { self, nixpkgs, jscoq-nix, flake-utils }:

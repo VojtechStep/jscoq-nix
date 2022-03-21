@@ -150,36 +150,37 @@
               popd
             '';
           };
-          opamScope = opam-nix.applyOverlays [
-            (self: super:
-              let
-                move-sitelib = p: p.overrideAttrs (prev: {
-                  preFixupPhases =
-                    let
-                      prevPF = prev.preFixupPhases or [ ];
-                    in
-                    # fixupStubs needs to happen before nixSupportPhase
-                    nixpkgs.lib.optional (!builtins.elem "fixupStubs" prevPF) "fixupStubs"
-                      ++ prevPF;
-                  fixupStubs = ''
-                    mkdir -p $OCAMLFIND_DESTDIR/stublibs
-                    mv $OCAMLFIND_DESTDIR/$OPAM_PACKAGE_NAME/dll*.so $OCAMLFIND_DESTDIR/stublibs/
-                  '';
-                });
-              in
-              {
-                # Fix num putting its dll in site-lib/num
-                num = move-sitelib super.num;
-                zarith = move-sitelib super.zarith;
-              })
-          ]
+          opamScope =
             # Build with 32bit packages
-            (opam-nix.buildOpamProject' { pkgs = pkgs32; }
-              jscoqSource
-              { });
+            (opam-nix.materializedDefsToScope { pkgs = pkgs32; } ./package-defs.json).overrideScope'
+              (self: super:
+                let
+                  move-sitelib = p: p.overrideAttrs (prev: {
+                    preFixupPhases =
+                      let
+                        prevPF = prev.preFixupPhases or [ ];
+                      in
+                      # fixupStubs needs to happen before nixSupportPhase
+                      nixpkgs.lib.optional (!builtins.elem "fixupStubs" prevPF) "fixupStubs"
+                        ++ prevPF;
+                    fixupStubs = ''
+                      mkdir -p $OCAMLFIND_DESTDIR/stublibs
+                      mv $OCAMLFIND_DESTDIR/$OPAM_PACKAGE_NAME/dll*.so $OCAMLFIND_DESTDIR/stublibs/
+                    '';
+                  });
+                in
+                {
+                  # Fix num putting its dll in site-lib/num
+                  num = move-sitelib super.num;
+                  zarith = move-sitelib super.zarith;
+                });
 
           jscoq = opamScope.jscoq.overrideAttrs (jsc: {
             version = jscoqVersion;
+
+            # Override the source, otherwise opam-nix tries to fetch
+            # it from GitHub
+            src = jscoqSource;
 
             # used for building, includes dev dependencies
             NODE_MODULES = "${node_modules}/node_modules";
@@ -252,6 +253,42 @@
               EOL
             '';
           });
+
+          # Evaluating this attribute takes a lot of time,
+          # because it requires ocaml, opam, and others as
+          # _eval_ dependencies.
+          # It only gets evaluated by materializeDeps below
+          # opam-nix does not have a materializeOpamRepo', so merge the logic
+          # of materializeOpamRepo and buildOpamProject'
+          materialized =
+            let
+              inherit (builtins) mapAttrs concatLists attrValues;
+              inherit (nixpkgs.lib) pipe;
+              inherit (opam-nix) opamList joinRepos;
+              # Putting jscoqSource in quotes is important - otherwise,
+              # opam-nix assumes it to have a narHash, which it
+              # doesn't
+              # TODO: why doesn't it have a narHash?
+              repo = opam-nix.makeOpamRepoRec "${jscoqSource}";
+              latestVersions = mapAttrs (_: nixpkgs.lib.last) (opam-nix.listRepo repo);
+              pinDeps = concatLists (attrValues (mapAttrs
+                (name: version: opam-nix.getPinDepends repo.passthru.pkgdefs."${name}"."${version}")
+                latestVersions));
+            in
+            opam-nix.materialize
+              {
+                repos = pinDeps ++ [ repo opam-nix.opamRepository ];
+                # Include local packages
+                resolveArgs = {
+                  dev = true;
+                };
+                regenCommand = "nix run .#materialize";
+              }
+              latestVersions;
+
+          materializeDeps = pkgs.writeShellScript "jscoq-materialize" ''
+            cp "${materialized}" package-defs.json
+          '';
         in
         {
           packages = {
@@ -270,6 +307,11 @@
           );
 
           defaultPackage = self.packages."${system}".jscoq;
+
+          apps.materialize = {
+            type = "app";
+            program = "${materializeDeps}";
+          };
         }
       ) // {
       templates.basic = {

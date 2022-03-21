@@ -43,3 +43,7 @@ in pkgs.stdenv.mkDerivation {
 ** Development shell without flakes
 
 To start a development shell with jsCoq and Coq, run =nix-shell -p '(import (fetchTarball { ... })).default'=
+
+** Working on =jscoq-nix=
+
+To regenerate ~package-defs.json~, run =nix run .#materialize=.

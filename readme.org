@@ -4,9 +4,7 @@ Nix flake for [[https://github.com/jscoq/jscoq][jsCoq]], including its CLI, appr
 
 Note that if you don't need to precompile your Coq source files, and you only want to embed jsCoq in your website, this repo is probably overkill - consider using the jsCoq [[https://www.npmjs.com/package/jscoq][npm package]] (with something like [[https://github.com/svanderburg/node2nix][node2nix]], if you insist on using Nix), which includes a precompiled version of Coq's stdlib and some frontend templates to get you started. Also consult the [[https://github.com/jscoq/jscoq/blob/v8.14/docs/embedding.md][official docs]] on embedding jsCoq.
 
-#+begin_quote
-Disclaimer: first build might take a lot of time - since the target is JavaScript, which does not support 64bit integers, the entire Coq and OCaml tooling must be recompiled for 32bit targets, and there is no binary cache for jscoq-nix yet.
-#+end_quote
+There is a binary cache that can be used with [[https://www.cachix.org/][cachix]]. Run =cachix use vs-jscoq-nix= and follow the instructions that show up to activate the cache.
 
 ** Quickstart
 

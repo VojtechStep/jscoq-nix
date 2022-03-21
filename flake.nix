@@ -62,7 +62,8 @@
           # Version specifications
           jscoqRev = "20b51aa7e7172e1a6c5e2c2834a5e40ea7250e77";
           jscoqVersion = "0.14";
-          coqVersion = "8.14";
+          coqVersionFull = "8.14.1";
+          coqVersion = nixpkgs.lib.versions.majorMinor coqVersionFull;
 
           # Fetch npm package description separately, to prevent a circular dependency
           # Fetching and file manipulation can be native
@@ -106,7 +107,7 @@
             name = "coq-source";
             owner = "coq";
             repo = "coq";
-            rev = "v${coqVersion}";
+            rev = "V${coqVersionFull}";
             sha256 = "sha256-IvEs1YuabQmavYkvARoRx876y0Y+8e7KF9P6G9ZtxB0=";
 
             # when fetchFromGitHub uses fetchzip, it expects extraPostFetch instead of postFetch

@@ -1,0 +1,45 @@
+* =jscoq-nix=
+
+Nix flake for [[https://github.com/jscoq/jscoq][jsCoq]], including its CLI, appropriate Coq version, and frontend bundle.
+
+Note that if you don't need to precompile your Coq source files, and you only want to embed jsCoq in your website, this repo is probably overkill - consider using the jsCoq [[https://www.npmjs.com/package/jscoq][npm package]] (with something like [[https://github.com/svanderburg/node2nix][node2nix]], if you insist on using Nix), which includes a precompiled version of Coq's stdlib and some frontend templates to get you started. Also consult the [[https://github.com/jscoq/jscoq/blob/v8.14/docs/embedding.md][official docs]] on embedding jsCoq.
+
+#+begin_quote
+Disclaimer: first build might take a lot of time - since the target is JavaScript, which does not support 64bit integers, the entire Coq and OCaml tooling must be recompiled for 32bit targets, and there is no binary cache for jscoq-nix yet.
+#+end_quote
+
+** Quickstart
+
+If you use nix with flakes, you can use the provided template, which sets up everything for building a website with embedded jsCoq - a source directory for your ~.v~ files, an HTML template which loads Coq's stdlib and your custom module, a Makefile, and a development shell with a web server.
+
+To use it, create a directory for your project, open a shell there, and run
+#+begin_src shell
+nix flake init -t github:VojtechStep/jscoq-nix
+#+end_src
+
+From there, you can either build and package the project with =nix build=, or enter a development shell with =nix develop=, build locally with =make=, and serve the local build with =make serve=.
+
+If you change the logical path of your package, make sure to update ~src/_CoqProject~, the =PROJECT= variable at the top of ~Makefile~, and the module entry in =all_pkgs= in ~index.html~.
+
+** Use as a Nix flake
+
+To use the infrastructure with flakes, add =inputs.jscoq-nix.url = "github:VojtechStep/jscoq-nix"= to your flake, and use as usual. The default export is =jscoq=. See [[file:examples/basic/flake.nix][example]] for usage.
+
+** Use without flakes
+
+The project contains a compatibility layer for usage without flakes. Either add this project as a dependency with [[https://github.com/nmattia/niv][niv]], or use your usual mechanisms for obtaining nix tooling from GitHub, and the =default= attribute contains the main derivation.
+#+begin_src nix
+{ pkgs ? import <nixpkgs> { } }:
+let jscoq-nix = import (fetchTarball {
+      url = "https://github.com/VojtechStep/jscoq-nix/archive/<REVISION>.tar.gz";
+      sha256 = pkgs.lib.fakeSha256;
+    }).default;
+in pkgs.stdenv.mkDerivation {
+  # rest of your derivation
+  nativeBuildInputs = [ jscoq-nix ];
+}
+#+end_src
+
+** Development shell without flakes
+
+To start a development shell with jsCoq and Coq, run =nix-shell -p '(import (fetchTarball { ... })).default'=

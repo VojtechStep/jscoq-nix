@@ -31,14 +31,25 @@
   # 5) runs a dune build
   outputs = { self, nixpkgs, flake-utils, npmlock2nix, opam-nix, ... }:
     let
+      inherit (flake-utils.lib) eachSystem;
+      systems = flake-utils.lib.system;
       npmlock2nix' = npmlock2nix;
       opam-nix' = opam-nix;
-      # TODO: support darwin?
-      system-32bit = system: "i686-linux";
+
+      system-32bit = system:
+        let
+          expanded = nixpkgs.lib.systems.elaborate system;
+        in
+        if expanded.isLinux then systems.i686-linux
+        else if expanded.isDarwin then systems.i686-darwin
+        else throw "Cannot 32bit-ify system: ${system}";
     in
-    with flake-utils.lib; eachSystem [
-      system.x86_64-linux
-      system.i686-linux
+    eachSystem [
+      systems.x86_64-linux
+      systems.i686-linux
+      systems.x86_64-darwin
+      systems.i686-darwin
+      systems.aarch64-darwin
     ]
       (
         system:
@@ -48,7 +59,12 @@
           # since the JavaScript environment does not have 64bit integers
           system32 = system-32bit system;
           pkgs = nixpkgs.legacyPackages."${system}";
-          pkgs32 = nixpkgs.legacyPackages."${system32}";
+
+          # Fix for darwin - the package set i686-darwin does not
+          # exist under legacyPackages
+          pkgs32 = import nixpkgs {
+            system = system32;
+          };
 
           # Node things can be native
           npmlock2nix = import npmlock2nix' {

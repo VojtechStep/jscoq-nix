@@ -6,7 +6,8 @@
     flake-utils.url = "github:numtide/flake-utils";
     jscoq-nix = {
       url = "github:VojtechStep/jscoq-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # uncomment at your own risk, may result in rebuilding jscoq
+      # inputs.nixpkgs.follows = "nixpkgs";
       inputs.flake-utils.follows = "flake-utils";
     };
   };
@@ -15,6 +16,9 @@
     with flake-utils.lib; eachSystem [
       system.x86_64-linux
       system.i686-linux
+      system.x86_64-darwin
+      system.i686-darwin
+      system.aarch64-darwin
     ]
       (
         system:

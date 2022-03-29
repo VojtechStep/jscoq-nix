@@ -22,11 +22,12 @@
     };
   };
 
-  # Builds the derivation in three steps:
+  # Builds the derivation in five steps:
   # 1) fetches the jsCoq sources, and puts the Coq sources where they need to be
   # 2) fetches node_modules for jsCoq's package.json, one with devDependencies and one without
   # 3) builds an OPAM scope so that package versions used between Coq, jsCoq, and serapi
   #    are consistent
+  #    - the set of packages and their versions is pre-built and stored in package-defs.json
   # 4) patches dune recipes to use the pre-fetched node_modules
   # 5) runs a dune build
   outputs = { self, nixpkgs, flake-utils, npmlock2nix, opam-nix, ... }:
@@ -35,14 +36,6 @@
       systems = flake-utils.lib.system;
       npmlock2nix' = npmlock2nix;
       opam-nix' = opam-nix;
-
-      system-32bit = system:
-        let
-          expanded = nixpkgs.lib.systems.elaborate system;
-        in
-        if expanded.isLinux then systems.i686-linux
-        else if expanded.isDarwin then systems.i686-darwin
-        else throw "Cannot 32bit-ify system: ${system}";
     in
     eachSystem [
       systems.x86_64-linux
@@ -54,25 +47,10 @@
       (
         system:
         let
-          # Although the binary can be run on 64bit systems,
-          # Coq and OCaml dependencies need to be built for 32bit,
-          # since the JavaScript environment does not have 64bit integers
-          system32 = system-32bit system;
           pkgs = nixpkgs.legacyPackages."${system}";
-
-          # Fix for darwin - the package set i686-darwin does not
-          # exist under legacyPackages
-          pkgs32 = import nixpkgs {
-            system = system32;
-          };
-
-          # Node things can be native
           npmlock2nix = import npmlock2nix' {
             inherit pkgs;
           };
-
-          # The bootstrap packages can still be native
-          # the 32bit-ness is introduced when building the project
           opam-nix = opam-nix'.lib."${system}";
           variant =
             let
@@ -133,8 +111,7 @@
             rev = "V${coqVersionFull}";
             sha256 = "sha256-kXpBs2jRG4wp57vrrVhjYfGO2iekcHqaqZmS+paKuHU=";
           };
-          addonsPath = "_vendor+v${coqVersion}+32bit";
-          coqLocalPath = addonsPath + "/coq";
+
           jscoqSource = pkgs.fetchFromGitHub {
             name = "jscoq-source";
             owner = "jscoq";
@@ -169,9 +146,11 @@
               then "sha256-HESF8306/6LwYRf+4cBiizgq90psuGCMmEbmHeyRd18="
               else "sha256-Yus8zbi2xd8yYAOxcjto3whj9p3Np3BxeK6WEqBTv1o=";
           };
+
+          addonsPath = "_vendor+v${coqVersion}+${variant}";
+          coqLocalPath = addonsPath + "/coq";
           opamScope =
-            # Build with 32bit packages
-            (opam-nix.materializedDefsToScope { pkgs = pkgs32; } ./package-defs.json).overrideScope'
+            (opam-nix.materializedDefsToScope { inherit pkgs; } ./package-defs.json).overrideScope'
               (self: super:
                 let
                   move-sitelib = p: p.overrideAttrs (prev: {
@@ -181,7 +160,7 @@
                       in
                       # fixupStubs needs to happen before nixSupportPhase
                       nixpkgs.lib.optional (!builtins.elem "fixupStubs" prevPF) "fixupStubs"
-                        ++ prevPF;
+                      ++ prevPF;
                     fixupStubs = ''
                       mkdir -p $OCAMLFIND_DESTDIR/stublibs
                       mv $OCAMLFIND_DESTDIR/$OPAM_PACKAGE_NAME/dll*.so $OCAMLFIND_DESTDIR/stublibs/
@@ -214,6 +193,8 @@
             # prefix is where Coq will be built, libdir is where the stdlib will end up
             # ... I think?
             # needs to run at the end of configurePhase, because that's where we get OCAMLFIND_DESTDIR
+            # We don't pass --workspace to dune, since the workspace files only differ in the opam switch,
+            # which is patched to `default` above anyway
             postConfigure = ''
               mkdir -p ${addonsPath}
               cp -rT ${coqPatched} ${coqLocalPath}
@@ -260,8 +241,8 @@
                 prevPF = jsc.preFixupPhases or [ ];
               in
               prevPF ++
-                # addCoqSetup needs to happen after nixSupportPhase
-                nixpkgs.lib.optional (!builtins.elem "addCoqSetup" prevPF) "addCoqSetup";
+              # addCoqSetup needs to happen after nixSupportPhase
+              nixpkgs.lib.optional (!builtins.elem "addCoqSetup" prevPF) "addCoqSetup";
 
             # Discover other coq packages
             addCoqSetup = ''

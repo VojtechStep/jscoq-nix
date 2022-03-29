@@ -300,7 +300,7 @@
                 };
                 regenCommand = "nix run .#materialize";
               }
-              latestVersions;
+              (latestVersions // { ocaml = "4.12.0"; });
 
           materializeDeps = pkgs.writeShellScript "jscoq-materialize" ''
             cp "${materialized}" package-defs.json

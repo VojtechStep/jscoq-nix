@@ -74,6 +74,13 @@
           # The bootstrap packages can still be native
           # the 32bit-ness is introduced when building the project
           opam-nix = opam-nix'.lib."${system}";
+          variant =
+            let
+              full = nixpkgs.lib.systems.elaborate { inherit system; };
+            in
+            if full.is64bit then "64bit"
+            else if full.is32bit then "32bit"
+            else throw "Unknown system bitness";
 
           # Version specifications
           jscoqRev = "20b51aa7e7172e1a6c5e2c2834a5e40ea7250e77";
@@ -124,28 +131,7 @@
             owner = "coq";
             repo = "coq";
             rev = "V${coqVersionFull}";
-            sha256 = "sha256-IvEs1YuabQmavYkvARoRx876y0Y+8e7KF9P6G9ZtxB0=";
-
-            # when fetchFromGitHub uses fetchzip, it expects extraPostFetch instead of postFetch
-            # https://github.com/NixOS/nixpkgs/issues/158629
-            extraPostFetch =
-              let
-                # Fetch the patches separately, to avoid a circular dependency between jsCoqSource and coqSource
-                patches = nixpkgs.lib.pipe [
-                  { name = "trampoline"; sha256 = "sha256-ij+icsVejkBi7m+oiVkrGzq7Vd64/ltVxc4VRzBc7tU="; }
-                  { name = "fold"; sha256 = "sha256-hX5WoknoZvVZzqMqAXa86aLIWwMm80zcR9FM8AvClks="; }
-                  { name = "timeout"; sha256 = "sha256-eQWEZLdOaF+7I5qRHV79LQbL52KuGngehZfc2b8gokw="; }
-                ] [
-                  (map (p: pkgs.fetchpatch ({
-                    url = "https://raw.githubusercontent.com/jscoq/jscoq/${jscoqRev}/etc/patches/${p.name}.patch";
-                  } // p)))
-                  (map toString)
-                  (builtins.concatStringsSep " ")
-                ];
-              in
-              ''
-                for p in ${patches}; do patch -d $out -p1 < $p; done
-              '';
+            sha256 = "sha256-kXpBs2jRG4wp57vrrVhjYfGO2iekcHqaqZmS+paKuHU=";
           };
           addonsPath = "_vendor+v${coqVersion}+32bit";
           coqLocalPath = addonsPath + "/coq";
@@ -156,15 +142,32 @@
             # The last few fixes happened after a tag
             rev = jscoqRev;
             fetchSubmodules = true;
-            sha256 = "sha256-tLmDbZyPgszR9gtbt5CqomaYPSPT6TnH5M36dKw7Vuw=";
+            sha256 = "sha256-kZvcc7hW1Hr5WXA8LWQOJNQRmm9UfE+gJjBebOU4UIQ=";
+          };
 
-            postFetch = ''
-              pushd $out
-              mkdir -p ${addonsPath}
-              cp -rT ${coqSource} ${coqLocalPath}
-              chmod +w -R ${coqLocalPath}
-              popd
+          coqPatched = pkgs.stdenvNoCC.mkDerivation {
+            pname = "coq-src-patched";
+            version = coqVersionFull;
+            src = coqSource;
+
+            phases = [ "unpackPhase" "patchPhase" "installPhase" ];
+
+            # Fetch the patches separately, to avoid a circular dependency between jsCoqSource and coqSource
+            patches = map (f: "${jscoqSource}/etc/patches/${f}.patch")
+              ([ "trampoline" "fold" "timeout" ] ++ nixpkgs.lib.optional (variant == "64bit") "coerce-32bit");
+
+            installPhase = ''
+              mkdir $out
+              cp -rt $out ./*
             '';
+
+            # Make this a fixed-output derivation
+            outputHashAlgo = "sha256";
+            outputHashMode = "recursive";
+            outputHash =
+              if (variant == "64bit")
+              then "sha256-HESF8306/6LwYRf+4cBiizgq90psuGCMmEbmHeyRd18="
+              else "sha256-Yus8zbi2xd8yYAOxcjto3whj9p3Np3BxeK6WEqBTv1o=";
           };
           opamScope =
             # Build with 32bit packages
@@ -212,7 +215,9 @@
             # ... I think?
             # needs to run at the end of configurePhase, because that's where we get OCAMLFIND_DESTDIR
             postConfigure = ''
-              cur_src=$PWD
+              mkdir -p ${addonsPath}
+              cp -rT ${coqPatched} ${coqLocalPath}
+              chmod +w -R ${coqLocalPath}
               pushd ${coqLocalPath}
 
               # Configure Coq
@@ -278,22 +283,28 @@
           # of materializeOpamRepo and buildOpamProject'
           materialized =
             let
-              inherit (builtins) mapAttrs concatLists attrValues;
-              inherit (nixpkgs.lib) pipe;
-              inherit (opam-nix) opamList joinRepos;
-              # Putting jscoqSource in quotes is important - otherwise,
+              inherit (builtins) mapAttrs concatLists attrValues filter;
+              inherit (nixpkgs.lib) pipe hasAttrByPath;
+              inherit (opam-nix) listRepo joinRepos makeOpamRepoRec getPinDepends;
+              # Putting (js)coqSource in quotes is important - otherwise,
               # opam-nix assumes it to have a narHash, which it
               # doesn't
               # TODO: why doesn't it have a narHash?
-              repo = opam-nix.makeOpamRepoRec "${jscoqSource}";
-              latestVersions = mapAttrs (_: nixpkgs.lib.last) (opam-nix.listRepo repo);
-              pinDeps = concatLists (attrValues (mapAttrs
-                (name: version: opam-nix.getPinDepends repo.passthru.pkgdefs."${name}"."${version}")
-                latestVersions));
+              srcRepos = (map makeOpamRepoRec [ "${jscoqSource}" "${coqSource}" ]);
+              latestVersions = mapAttrs (_: nixpkgs.lib.last) (listRepo (joinRepos srcRepos));
+              pinDeps = concatLists
+                (attrValues
+                  (mapAttrs
+                    (name: version:
+                      let
+                        havePackage = filter (hasAttrByPath [ "passthru" "pkgdefs" name version ]) srcRepos;
+                      in
+                      concatLists (map (r: getPinDepends r.passthru.pkgdefs."${name}"."${version}") havePackage))
+                    latestVersions));
             in
             opam-nix.materialize
               {
-                repos = pinDeps ++ [ repo opam-nix.opamRepository ];
+                repos = pinDeps ++ srcRepos ++ [ opam-nix.opamRepository ];
                 # Include local packages
                 resolveArgs = {
                   dev = true;

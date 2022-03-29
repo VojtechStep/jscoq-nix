@@ -66,44 +66,6 @@
           coqVersionFull = "8.14.1";
           coqVersion = nixpkgs.lib.versions.majorMinor coqVersionFull;
 
-          # Fetch npm package description separately, to prevent a circular dependency
-          # Fetching and file manipulation can be native
-          pckJson = pkgs.fetchurl
-            {
-              url = "https://raw.githubusercontent.com/jscoq/jscoq/${jscoqRev}/package.json";
-              sha256 = "sha256-pLrGnu/+mr+VBRJ7sFEfRSZ3tyVt6uh+VrY32y1Wp4Q=";
-            };
-          pckJsonLock = pkgs.fetchurl {
-            url = "https://raw.githubusercontent.com/jscoq/jscoq/${jscoqRev}/package-lock.json";
-            sha256 = "sha256-LJU1/r+ioApuhFsgKHuCoz7zPXrOhWivIb4QvFrZ064=";
-          };
-          dev-src = pkgs.stdenvNoCC.mkDerivation {
-            pname = "jscoq-node_modules-base-dev";
-            version = jscoqVersion;
-            phases = [ "installPhase" ];
-            installPhase = ''
-              mkdir -p $out
-              cp ${pckJson} $out/package.json
-              cp ${pckJsonLock} $out/package-lock.json
-            '';
-          };
-          prod-src = pkgs.stdenvNoCC.mkDerivation {
-            pname = "jscoq-node_modules-base-prod";
-            version = jscoqVersion;
-            phases = [ "installPhase" ];
-            installPhase = ''
-              mkdir -p $out
-              ${pkgs.jq}/bin/jq 'del(.devDependencies)' < ${pckJson} > $out/package.json
-              cp ${pckJsonLock} $out/package-lock.json
-            '';
-          };
-          node_modules = npmlock2nix.node_modules {
-            src = dev-src;
-          };
-          node_modules-production = npmlock2nix.node_modules {
-            src = prod-src;
-          };
-
           coqSource = pkgs.fetchFromGitHub {
             name = "coq-source";
             owner = "coq";
@@ -147,8 +109,6 @@
               else "sha256-Yus8zbi2xd8yYAOxcjto3whj9p3Np3BxeK6WEqBTv1o=";
           };
 
-          addonsPath = "_vendor+v${coqVersion}+${variant}";
-          coqLocalPath = addonsPath + "/coq";
           opamScope =
             (opam-nix.materializedDefsToScope { inherit pkgs; } ./package-defs.json).overrideScope'
               (self: super:
@@ -173,88 +133,103 @@
                   zarith = move-sitelib super.zarith;
                 });
 
-          jscoq = opamScope.jscoq.overrideAttrs (jsc: {
-            version = jscoqVersion;
+          jscoq =
+            let
+              addonsPath = "_vendor+v${coqVersion}+${variant}";
+              coqLocalPath = addonsPath + "/coq";
+              nm_args = {
+                src = null;
+                packageJson = "${jscoqSource}/package.json";
+                packageLockJson = "${jscoqSource}/package-lock.json";
+              };
+              node_modules = npmlock2nix.node_modules nm_args;
+              node_modules-production = npmlock2nix.node_modules (nm_args // {
+                # Needs to go through a new file, as the original is a symlink
+                preBuild = ''
+                  ${pkgs.jq}/bin/jq 'del(.devDependencies)' < package.json > package-new.json
+                  mv package-new.json package.json
+                '';
+              });
+            in
+            opamScope.jscoq.overrideAttrs (jsc: {
+              version = jscoqVersion;
 
-            # Override the source, otherwise opam-nix tries to fetch
-            # it from GitHub
-            src = jscoqSource;
+              src = jscoqSource;
 
-            # used for building, includes dev dependencies
-            NODE_MODULES = "${node_modules}/node_modules";
-            COQBUILDDIR_REL = coqLocalPath;
+              # used for building, includes dev dependencies
+              NODE_MODULES = "${node_modules}/node_modules";
+              COQBUILDDIR_REL = coqLocalPath;
 
-            patches = (jsc.patches or [ ]) ++ [ ./dune.patch ];
+              patches = (jsc.patches or [ ]) ++ [ ./dune.patch ];
 
-            postPatch = ''
-              sed -i -e '/(opam/c\ (default' dune-workspace
-            '';
+              postPatch = ''
+                sed -i -e '/(opam/c\ (default' dune-workspace
+              '';
 
-            # prefix is where Coq will be built, libdir is where the stdlib will end up
-            # ... I think?
-            # needs to run at the end of configurePhase, because that's where we get OCAMLFIND_DESTDIR
-            # We don't pass --workspace to dune, since the workspace files only differ in the opam switch,
-            # which is patched to `default` above anyway
-            postConfigure = ''
-              mkdir -p ${addonsPath}
-              cp -rT ${coqPatched} ${coqLocalPath}
-              chmod +w -R ${coqLocalPath}
-              pushd ${coqLocalPath}
+              # Needs to run at the end of configurePhase, because that's where we get OCAMLFIND_DESTDIR
+              #
+              # We don't pass --workspace to dune, since the workspace files only differ in the opam switch,
+              # which is patched to `default` above anyway
+              postConfigure = ''
+                mkdir -p ${addonsPath}
+                cp -rT ${coqPatched} ${coqLocalPath}
+                chmod +w -R ${coqLocalPath}
+                pushd ${coqLocalPath}
 
-              # Configure Coq
-              dune exec tools/configure/configure.exe -- \
-                -prefix $out \
-                -libdir $OCAMLFIND_DESTDIR/coq \
-                -native-compiler no -bytecode-compiler no -coqide no
-              popd
-            '';
+                # Configure Coq
+                dune exec tools/configure/configure.exe -- \
+                  -prefix $out \
+                  -libdir $OCAMLFIND_DESTDIR/coq \
+                  -native-compiler no -bytecode-compiler no -coqide no
+                popd
+              '';
 
-            # For running =cli.js build= on Coq sources
-            nativeBuildInputs = (jsc.nativeBuildInputs or [ ]) ++ [ node_modules.nodejs ];
-            # For running =jscoq= in the target environment
-            propagatedBuildInputs = (jsc.propagatedBuildInputs or [ ]) ++ [ node_modules.nodejs ];
+              # For running =cli.js build= on Coq sources
+              nativeBuildInputs = (jsc.nativeBuildInputs or [ ]) ++ [ node_modules.nodejs ];
+              # For running =jscoq= in the target environment
+              propagatedBuildInputs = (jsc.propagatedBuildInputs or [ ]) ++ [ node_modules.nodejs ];
 
-            buildPhase = ''
-              runHook preBuild
-              dune build @jscoq
-              patchShebangs _build/default/dist/cli.js
-              dune build -p coq,coq-core,coq-stdlib
-              runHook postBuild
-            '';
+              buildPhase = ''
+                runHook preBuild
+                dune build @jscoq
+                patchShebangs _build/default/dist/cli.js
+                dune build -p coq,coq-core,coq-stdlib
+                runHook postBuild
+              '';
 
-            installPhase = ''
-              mkdir -p $out/jscoq
-              runHook preInstall
-              dune install --prefix $out --libdir $OCAMLFIND_DESTDIR coq coq-core coq-stdlib
-              cp -R README.md index.html package.json package-lock.json \
-                _build/default/{coq-pkgs,ui-js,ui-css,ui-images,ui-external,examples,dist} $out/jscoq
-              mkdir -p $out/jscoq/coq-js
-              cp _build/default/coq-js/jscoq_worker.bc.js $out/jscoq/coq-js
-              ln -sfT $out/jscoq/dist/cli.js $out/bin/jscoq
-              ln -sfT ${node_modules-production}/node_modules $out/jscoq/node_modules
-              runHook postInstall
-            '';
+              installPhase = ''
+                mkdir -p $out/jscoq
+                runHook preInstall
+                dune install --prefix $out --libdir $OCAMLFIND_DESTDIR coq coq-core coq-stdlib
+                cp -R README.md index.html package.json package-lock.json \
+                  _build/default/{coq-pkgs,ui-js,ui-css,ui-images,ui-external,examples,dist} $out/jscoq
+                mkdir -p $out/jscoq/coq-js
+                cp _build/default/coq-js/jscoq_worker.bc.js $out/jscoq/coq-js
+                ln -sfT $out/jscoq/dist/cli.js $out/bin/jscoq
+                ln -sfT ${node_modules-production}/node_modules $out/jscoq/node_modules
+                runHook postInstall
+              '';
 
-            # We can't use setupHook, because opam-nix writes to $out/nix-support/setup-hook directly
-            preFixupPhases =
-              let
-                prevPF = jsc.preFixupPhases or [ ];
-              in
-              prevPF ++
-              # addCoqSetup needs to happen after nixSupportPhase
-              nixpkgs.lib.optional (!builtins.elem "addCoqSetup" prevPF) "addCoqSetup";
+              # We can't use setupHook, because opam-nix writes to $out/nix-support/setup-hook directly
+              preFixupPhases =
+                let
+                  prevPF = jsc.preFixupPhases or [ ];
+                in
+                prevPF ++
+                # addCoqSetup needs to happen after nixSupportPhase
+                nixpkgs.lib.optional (!builtins.elem "addCoqSetup" prevPF) "addCoqSetup";
 
-            # Discover other coq packages
-            addCoqSetup = ''
-              cat >>"$out/nix-support/setup-hook" <<EOL
-              addCoqPath () {
-                addToSearchPath COQPATH "\$1/lib/coq/${coqVersion}/user-contrib/"
-              }
+              # Discover other coq packages
+              addCoqSetup = ''
+                cat >>"$out/nix-support/setup-hook" <<EOL
+                addCoqPath () {
+                  addToSearchPath COQPATH "\$1/lib/coq/${coqVersion}/user-contrib/"
+                }
 
-              addEnvHooks "\$targetOffset" addCoqPath
-              EOL
-            '';
-          });
+                addEnvHooks "\$targetOffset" addCoqPath
+                EOL
+              '';
+            });
 
           # Evaluating this attribute takes a lot of time,
           # because it requires ocaml, opam, and others as

@@ -89,7 +89,7 @@
             version = coqVersionFull;
             src = coqSource;
 
-            phases = [ "unpackPhase" "patchPhase" "installPhase" ];
+            phases = [ "unpackPhase" "patchPhase" "installPhase" "fixupPhase" ];
 
             # Fetch the patches separately, to avoid a circular dependency between jsCoqSource and coqSource
             patches = map (f: "${jscoqSource}/etc/patches/${f}.patch")
@@ -99,14 +99,6 @@
               mkdir $out
               cp -rt $out ./*
             '';
-
-            # Make this a fixed-output derivation
-            outputHashAlgo = "sha256";
-            outputHashMode = "recursive";
-            outputHash =
-              if (variant == "64bit")
-              then "sha256-HESF8306/6LwYRf+4cBiizgq90psuGCMmEbmHeyRd18="
-              else "sha256-Yus8zbi2xd8yYAOxcjto3whj9p3Np3BxeK6WEqBTv1o=";
           };
 
           opamScope =
